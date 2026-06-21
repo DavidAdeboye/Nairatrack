@@ -1,0 +1,1743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<!-- CSP: restrict sources, block inline eval, allow only known CDNs -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src https://fonts.gstatic.com;
+  connect-src https://api.groq.com;
+  img-src 'self' data:;
+  manifest-src 'self';
+  worker-src 'self' blob:;
+">
+<title>NairaTrack</title>
+<meta name="description" content="A warm, receipt-styled personal finance ledger for tracking naira income, expenses, and loans — with statement import and category insights.">
+<meta name="theme-color" content="#0C0904">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NairaTrack">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha512-T4MBtnHlaHjLMkm5xvEZqKj2JkVoQdW3YNkiRIAB/QB6GVCQxMy8oLhJEsPOFleJFgfhqxMygPbzXpJFihhA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" integrity="sha512-dfX5uYVXzyU8+KHqj8bjo7UkOdg18PaOtpa48djpNbZHwExddghqhZmdjs57wYHqu1mB79oi6rew1r+6ZiTGg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style>
+:root {
+  /* Ledger palette — warm ink-black, not cool tech-black */
+  --ink:    #0C0904;
+  --ink1:   #131008;
+  --ink2:   #1A1610;
+  --ink3:   #242018;
+  --ink4:   #2E2A20;
+
+  /* Amber gold — naira, receipt, warmth */
+  --gold:   #E8A030;
+  --gold2:  #C4831C;
+  --gdim:   rgba(232,160,48,.12);
+  --gdim2:  rgba(232,160,48,.06);
+
+  /* Semantic */
+  --pos:    #3EC97A;
+  --posdim: rgba(62,201,122,.12);
+  --neg:    #E85050;
+  --negdim: rgba(232,80,80,.12);
+  --blue:   #6BA3E8;
+  --bluedim:rgba(107,163,232,.10);
+
+  /* Text */
+  --t0: #F2EDE4;
+  --t1: #BDB5A4;
+  --t2: #7A7264;
+  --t3: #3D3830;
+
+  /* Borders */
+  --b1: rgba(242,237,228,.08);
+  --b2: rgba(242,237,228,.04);
+
+  /* Receipt tape texture diagonal */
+  --tape: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 5px,
+    rgba(242,237,228,.015) 5px,
+    rgba(242,237,228,.015) 6px
+  );
+
+  --r: 18px;
+  --rs: 11px;
+  --rx: 24px;
+  --font-display: 'DM Serif Display', serif;
+  --font-body: 'Outfit', sans-serif;
+  --font-mono: 'DM Mono', monospace;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;background:var(--ink);color:var(--t0);font-family:var(--font-body);}
+::-webkit-scrollbar{display:none;}
+
+#app{display:flex;flex-direction:column;height:100dvh;max-width:430px;margin:0 auto;background:var(--ink);position:relative;}
+#screen{flex:1;overflow-y:auto;overscroll-behavior:none;}
+
+/* ─── HEADER ─── */
+.hdr{
+  padding:18px 20px 0;
+  display:flex;align-items:center;justify-content:space-between;
+  position:sticky;top:0;z-index:30;
+  background:var(--ink);
+}
+.hdr-brand{
+  font-family:var(--font-display);
+  font-size:26px;letter-spacing:-.3px;line-height:1;
+  color:var(--t0);
+}
+.hdr-brand em{color:var(--gold);font-style:italic;}
+.hdr-tag{font-size:10px;color:var(--t2);letter-spacing:1.5px;text-transform:uppercase;margin-top:1px;}
+.hdr-right{display:flex;gap:8px;}
+.hdr-btn{
+  width:36px;height:36px;border-radius:10px;
+  background:var(--ink2);border:1px solid var(--b1);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:var(--t2);transition:all .2s;
+}
+.hdr-btn:active{opacity:.6;transform:scale(.95);}
+
+/* ─── BALANCE HERO ─── */
+.hero{padding:18px 20px 0;}
+.hero-card{
+  background:var(--ink1);
+  border:1px solid rgba(232,160,48,.22);
+  border-radius:var(--rx);
+  padding:24px 22px 20px;
+  position:relative;overflow:hidden;
+  background-image:var(--tape);
+}
+.hero-card::before{
+  content:'';position:absolute;top:-40px;right:-40px;
+  width:160px;height:160px;
+  background:radial-gradient(circle,rgba(232,160,48,.12) 0%,transparent 65%);
+  border-radius:50%;pointer-events:none;
+}
+.hero-rule{
+  position:absolute;top:0;left:22px;right:22px;
+  height:2px;background:var(--gold);opacity:.35;
+  border-radius:0 0 2px 2px;
+}
+.hero-eyebrow{
+  font-family:var(--font-mono);
+  font-size:9px;color:var(--t2);
+  letter-spacing:2.5px;text-transform:uppercase;
+  margin-bottom:8px;display:flex;align-items:center;gap:8px;
+}
+.ledger-dot{
+  width:5px;height:5px;border-radius:50%;
+  background:var(--gold);opacity:.7;
+  animation:goldpulse 2.5s infinite;
+}
+@keyframes goldpulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(232,160,48,.5)}
+  50%{box-shadow:0 0 0 5px rgba(232,160,48,0)}
+}
+.hero-amount{
+  font-family:var(--font-display);
+  font-size:52px;letter-spacing:-1px;line-height:1;
+  margin-bottom:18px;transition:color .3s;
+}
+.hero-amount .sym{font-size:26px;color:var(--t2);vertical-align:top;margin-top:8px;display:inline-block;font-style:italic;}
+.hero-amount.neg{color:var(--neg);}
+.hero-divider{height:1px;background:var(--b1);margin-bottom:16px;}
+.hero-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;}
+.hstat{padding:0 4px;text-align:center;position:relative;}
+.hstat+.hstat::before{
+  content:'';position:absolute;left:0;top:10%;height:80%;
+  width:1px;background:var(--b1);
+}
+.hstat-lbl{font-size:9px;color:var(--t2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;font-family:var(--font-mono);}
+.hstat-val{font-family:var(--font-mono);font-weight:500;font-size:14px;}
+
+/* ─── FAB ROW ─── */
+.fab-row{display:flex;gap:8px;padding:14px 20px 0;}
+.fab{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  gap:5px;padding:13px 6px;border-radius:16px;border:none;
+  cursor:pointer;transition:transform .15s,opacity .15s;
+  font-family:var(--font-body);
+}
+.fab:active{transform:scale(.95);opacity:.8;}
+.fab-icon{font-size:18px;line-height:1;}
+.fab-label{font-size:10px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;}
+.fab-in{background:var(--posdim);border:1px solid rgba(62,201,122,.2);color:var(--pos);}
+.fab-out{background:var(--negdim);border:1px solid rgba(232,80,80,.2);color:var(--neg);}
+.fab-imp{background:var(--gdim);border:1px solid rgba(232,160,48,.25);color:var(--gold);}
+.fab-loan{background:var(--bluedim);border:1px solid rgba(107,163,232,.2);color:var(--blue);}
+
+/* ─── SECTION ─── */
+.sec{padding:22px 20px 0;}
+.sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.sec-title{font-family:var(--font-display);font-size:18px;letter-spacing:-.2px;color:var(--t0);}
+.sec-link{font-size:11px;color:var(--gold);font-weight:600;cursor:pointer;letter-spacing:.5px;}
+
+/* ─── TX ITEMS ─── */
+.tx-wrap{display:flex;flex-direction:column;gap:6px;}
+.tx{
+  display:flex;align-items:center;gap:12px;
+  background:var(--ink1);
+  border:1px solid var(--b2);
+  border-radius:14px;padding:12px 13px;
+  background-image:var(--tape);
+  transition:background .15s;cursor:default;
+  animation:fadeup .22s ease;
+}
+.tx:active{background:var(--ink2);}
+@keyframes fadeup{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.tx-ico{
+  width:40px;height:40px;border-radius:11px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;flex-shrink:0;
+}
+.tx-body{flex:1;min-width:0;}
+.tx-name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px;}
+.tx-meta{font-size:10px;color:var(--t2);font-family:var(--font-mono);letter-spacing:.3px;}
+.tx-right{text-align:right;flex-shrink:0;}
+.tx-amt{font-family:var(--font-mono);font-weight:500;font-size:14px;}
+.tx-time{font-size:10px;color:var(--t3);margin-top:2px;font-family:var(--font-mono);}
+.tx-del{background:none;border:none;cursor:pointer;color:var(--t3);padding:5px;margin-left:2px;border-radius:7px;font-size:13px;transition:color .15s;}
+.tx-del:active{color:var(--neg);}
+/* Imported badge */
+.tx-imported{border-color:rgba(232,160,48,.15);}
+.tx-imported .tx-source{
+  display:inline-block;font-size:8px;letter-spacing:1px;
+  text-transform:uppercase;background:var(--gdim2);
+  color:var(--gold2);padding:2px 6px;border-radius:4px;
+  font-family:var(--font-mono);margin-top:2px;
+}
+
+/* ─── EMPTY ─── */
+.empty{text-align:center;padding:48px 20px;}
+.empty-ico{font-size:44px;margin-bottom:12px;opacity:.5;}
+.empty-title{font-family:var(--font-display);font-size:18px;margin-bottom:6px;}
+.empty-sub{font-size:12px;color:var(--t2);line-height:1.7;font-family:var(--font-mono);}
+
+/* ─── BOTTOM NAV ─── */
+#nav{
+  position:sticky;bottom:0;
+  background:rgba(12,9,4,.93);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-top:1px solid var(--b1);
+  display:flex;
+  padding:8px 0 calc(8px + env(safe-area-inset-bottom,0px));
+  z-index:40;
+}
+.nb{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;border:none;background:none;cursor:pointer;
+  color:var(--t3);transition:color .2s;padding:4px;
+}
+.nb.on{color:var(--gold);}
+.nb svg{width:21px;height:21px;stroke-width:1.8;}
+.nb-lbl{font-size:9px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;font-family:var(--font-body);}
+.nb-dot{width:3px;height:3px;border-radius:50%;background:var(--gold);margin-top:1px;opacity:0;transition:opacity .2s;}
+.nb.on .nb-dot{opacity:1;}
+
+/* ─── PAGES ─── */
+.pg{display:none;padding-bottom:24px;}
+.pg.on{display:block;}
+
+/* ─── STATS PAGE ─── */
+.stats-wrap{margin:18px 20px 0;}
+.stats-period{display:flex;background:var(--ink2);border-radius:10px;padding:3px;gap:2px;margin-bottom:18px;}
+.sp-btn{
+  flex:1;padding:8px 6px;border:none;background:none;
+  color:var(--t2);font-family:var(--font-body);
+  font-size:11px;font-weight:600;border-radius:8px;cursor:pointer;transition:all .2s;letter-spacing:.3px;
+}
+.sp-btn.on{background:var(--ink3);color:var(--t0);}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;}
+.sg{
+  background:var(--ink1);border:1px solid var(--b2);
+  border-radius:14px;padding:14px;
+  background-image:var(--tape);
+}
+.sg-lbl{font-size:9px;color:var(--t2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px;font-family:var(--font-mono);}
+.sg-val{font-family:var(--font-mono);font-weight:500;font-size:20px;}
+.cats-title{font-family:var(--font-display);font-size:18px;margin-bottom:12px;}
+.cat-row{display:flex;align-items:center;gap:10px;margin-bottom:11px;}
+.cat-emoji{font-size:14px;width:22px;text-align:center;flex-shrink:0;}
+.cat-name{font-size:11px;color:var(--t2);width:76px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);}
+.cat-bar-wrap{flex:1;background:var(--ink2);border-radius:4px;height:6px;overflow:hidden;}
+.cat-bar-fill{height:100%;border-radius:4px;transition:width .7s cubic-bezier(.4,0,.2,1);}
+.cat-amt{font-family:var(--font-mono);font-weight:500;font-size:11px;width:54px;text-align:right;flex-shrink:0;}
+
+/* ─── LOANS PAGE ─── */
+.loan-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:18px 20px 0;}
+.ls{border-radius:14px;padding:14px;background-image:var(--tape);}
+.ls-lbl{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px;font-family:var(--font-mono);opacity:.7;}
+.ls-val{font-family:var(--font-mono);font-weight:500;font-size:20px;}
+.ls-green{background:var(--posdim);border:1px solid rgba(62,201,122,.15);}
+.ls-amber{background:var(--gdim);border:1px solid rgba(232,160,48,.15);}
+.loan-list{padding:14px 20px 0;display:flex;flex-direction:column;gap:8px;}
+.loan-card{
+  background:var(--ink1);border:1px solid var(--b2);
+  border-radius:16px;padding:14px;
+  background-image:var(--tape);
+}
+.lc-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
+.lc-person{font-family:var(--font-display);font-size:16px;}
+.lc-desc{font-size:10px;color:var(--t2);margin-top:2px;font-family:var(--font-mono);}
+.lc-right{text-align:right;}
+.lc-amt{font-family:var(--font-mono);font-weight:500;font-size:17px;}
+.badge{display:inline-block;padding:3px 8px;border-radius:20px;font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;margin-top:3px;font-family:var(--font-mono);}
+.badge-g{background:var(--posdim);color:var(--pos);}
+.badge-a{background:var(--gdim);color:var(--gold);}
+.lc-date{font-size:10px;color:var(--t3);margin-bottom:8px;font-family:var(--font-mono);}
+.lc-actions{display:flex;gap:6px;}
+.lc-btn{flex:1;padding:8px;border-radius:9px;border:1px solid var(--b1);background:var(--ink2);color:var(--t2);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font-body);transition:all .15s;letter-spacing:.3px;}
+.lc-btn:active{opacity:.6;}
+.lc-btn.settle{background:var(--posdim);border-color:rgba(62,201,122,.2);color:var(--pos);}
+.lc-btn.del{background:var(--negdim);border-color:rgba(232,80,80,.15);color:var(--neg);}
+
+/* ─── AI PAGE ─── */
+.ai-top{padding:18px 20px 0;}
+.ai-hero{
+  background:var(--ink1);
+  border:1px solid rgba(232,160,48,.2);
+  border-radius:var(--rx);padding:20px;
+  position:relative;overflow:hidden;margin-bottom:14px;
+  background-image:var(--tape);
+}
+.ai-hero::after{
+  content:'𝐋';position:absolute;
+  right:16px;bottom:10px;font-size:80px;line-height:1;
+  color:rgba(232,160,48,.06);font-family:var(--font-display);font-style:italic;
+  pointer-events:none;
+}
+.ai-hero-eyebrow{font-size:9px;color:var(--gold2);letter-spacing:2px;text-transform:uppercase;margin-bottom:5px;font-family:var(--font-mono);}
+.ai-hero-title{font-family:var(--font-display);font-size:22px;letter-spacing:-.2px;margin-bottom:3px;}
+.ai-hero-sub{font-size:11px;color:var(--t2);line-height:1.6;font-family:var(--font-mono);}
+.ai-period{display:flex;gap:6px;margin-bottom:14px;}
+.aip{flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--b1);background:var(--ink1);color:var(--t2);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font-body);transition:all .2s;text-align:center;letter-spacing:.3px;}
+.aip.on{background:var(--gdim);border-color:rgba(232,160,48,.3);color:var(--gold);}
+.ai-box{background:var(--ink1);border:1px solid var(--b2);border-radius:16px;padding:16px;min-height:120px;margin-bottom:10px;background-image:var(--tape);}
+.ai-placeholder{color:var(--t2);font-size:12px;line-height:1.8;font-family:var(--font-mono);}
+.ai-placeholder strong{color:var(--gold);}
+.ai-thinking{display:flex;align-items:center;gap:10px;color:var(--t2);font-size:12px;font-family:var(--font-mono);}
+.dots{display:flex;gap:4px;}
+.dots span{width:6px;height:6px;border-radius:50%;background:var(--gold);animation:bounce .9s infinite;}
+.dots span:nth-child(2){animation-delay:.15s;}
+.dots span:nth-child(3){animation-delay:.3s;}
+@keyframes bounce{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-6px);opacity:1}}
+.ai-out{font-size:12px;line-height:1.9;color:var(--t0);font-family:var(--font-mono);}
+.ai-out strong{color:var(--pos);}
+.ai-out em{color:var(--gold);font-style:normal;}
+.ai-run-btn{
+  width:100%;padding:15px;
+  background:linear-gradient(135deg,var(--gold),var(--gold2));
+  border:none;border-radius:13px;
+  color:var(--ink);font-family:var(--font-display);font-style:italic;font-size:18px;
+  cursor:pointer;letter-spacing:-.1px;
+  transition:opacity .15s,transform .15s;
+}
+.ai-run-btn:active{opacity:.85;transform:scale(.98);}
+.ai-ask-wrap{margin-top:12px;display:flex;gap:7px;}
+.ai-input{
+  flex:1;background:var(--ink1);border:1px solid var(--b1);
+  border-radius:11px;padding:12px 13px;color:var(--t0);
+  font-family:var(--font-mono);font-size:12px;outline:none;
+  transition:border-color .2s;
+}
+.ai-input:focus{border-color:var(--gold);}
+.ai-send{
+  width:44px;height:44px;border-radius:11px;
+  background:var(--gdim);border:1px solid rgba(232,160,48,.25);
+  color:var(--gold);cursor:pointer;font-size:17px;
+  display:flex;align-items:center;justify-content:center;
+  transition:opacity .15s;flex-shrink:0;
+}
+.ai-send:active{opacity:.6;}
+
+/* ─── MODAL / OVERLAY ─── */
+#overlay{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,.8);z-index:100;
+  align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(6px);
+  max-width:430px;margin:0 auto;left:50%;transform:translateX(-50%);width:100%;
+}
+#overlay.show{display:flex;animation:fadeIn .2s;}
+#backupOverlay{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,.8);z-index:100;
+  align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(6px);
+  max-width:430px;margin:0 auto;left:50%;transform:translateX(-50%);width:100%;
+}
+#backupOverlay.show{display:flex;animation:fadeIn .2s;}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.sheet{
+  background:var(--ink1);border-radius:26px 26px 0 0;
+  padding:14px 20px 40px;width:100%;
+  animation:sheetUp .26s cubic-bezier(.2,0,.2,1);
+  max-height:92vh;overflow-y:auto;
+  background-image:var(--tape);
+  border:1px solid var(--b1);border-bottom:none;
+}
+@keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.sheet-handle{width:32px;height:3px;background:var(--ink4);border-radius:3px;margin:0 auto 18px;}
+.sheet-title{font-family:var(--font-display);font-size:22px;letter-spacing:-.3px;margin-bottom:18px;}
+
+/* TYPE PILLS */
+.type-row{display:flex;gap:5px;margin-bottom:16px;}
+.tp{
+  flex:1;padding:10px 5px;border-radius:11px;border:1px solid var(--b1);
+  background:var(--ink2);color:var(--t2);
+  font-family:var(--font-body);font-size:11px;font-weight:700;
+  cursor:pointer;transition:all .2s;letter-spacing:.5px;text-transform:uppercase;
+}
+.tp.on-in{background:var(--posdim);border-color:rgba(62,201,122,.3);color:var(--pos);}
+.tp.on-out{background:var(--negdim);border-color:rgba(232,80,80,.3);color:var(--neg);}
+.tp.on-loan{background:var(--bluedim);border-color:rgba(107,163,232,.3);color:var(--blue);}
+
+/* FORM */
+.fl{margin-bottom:13px;}
+.fl label{
+  display:block;font-size:9px;color:var(--t2);
+  text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;
+  font-weight:600;font-family:var(--font-mono);
+}
+.fi{
+  width:100%;background:var(--ink2);border:1px solid var(--b1);
+  border-radius:11px;padding:13px 14px;color:var(--t0);
+  font-family:var(--font-body);font-size:14px;outline:none;
+  transition:border-color .2s;
+  -webkit-appearance:none;appearance:none;
+}
+.fi:focus{border-color:var(--gold);}
+.fi::placeholder{color:var(--t3);}
+.amount-wrap{position:relative;}
+.amount-sym{
+  position:absolute;left:14px;top:50%;transform:translateY(-50%);
+  font-family:var(--font-display);font-size:20px;color:var(--t2);font-style:italic;
+  pointer-events:none;
+}
+.fi-amount{padding-left:30px;font-family:var(--font-mono);font-weight:500;font-size:22px;}
+.save-btn{
+  width:100%;padding:15px;margin-top:8px;
+  background:var(--gold);color:var(--ink);
+  font-family:var(--font-display);font-style:italic;font-size:18px;
+  border:none;border-radius:13px;cursor:pointer;
+  transition:opacity .15s,transform .15s;
+}
+.save-btn:active{opacity:.85;transform:scale(.98);}
+
+/* ═══════════════════════════════
+   IMPORT FLOW
+═══════════════════════════════ */
+
+/* Import page */
+.import-hero{
+  margin:18px 20px 0;
+  background:var(--ink1);border:1px dashed rgba(232,160,48,.35);
+  border-radius:var(--rx);padding:32px 22px;
+  text-align:center;cursor:pointer;
+  transition:border-color .2s,background .2s;
+  background-image:var(--tape);
+  position:relative;overflow:hidden;
+}
+.import-hero.dragover{
+  border-color:var(--gold);
+  background:rgba(232,160,48,.06);
+}
+.import-hero-ico{font-size:36px;margin-bottom:12px;display:block;}
+.import-hero-title{font-family:var(--font-display);font-size:20px;margin-bottom:6px;}
+.import-hero-sub{font-size:11px;color:var(--t2);line-height:1.7;font-family:var(--font-mono);}
+.import-supported{
+  display:flex;gap:6px;justify-content:center;margin-top:14px;
+}
+.import-tag{
+  padding:4px 10px;border-radius:20px;
+  font-size:9px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+  font-family:var(--font-mono);
+}
+.import-tag-csv{background:var(--posdim);color:var(--pos);border:1px solid rgba(62,201,122,.2);}
+.import-tag-pdf{background:var(--negdim);color:var(--neg);border:1px solid rgba(232,80,80,.2);}
+.import-tag-txt{background:var(--bluedim);color:var(--blue);border:1px solid rgba(107,163,232,.2);}
+
+#fileInput{display:none;}
+
+.import-tips{padding:16px 20px 0;}
+.import-tip-title{
+  font-size:9px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--t2);font-family:var(--font-mono);margin-bottom:10px;
+}
+.import-tip{
+  display:flex;align-items:flex-start;gap:10px;
+  margin-bottom:8px;
+}
+.import-tip-ico{
+  font-size:14px;width:28px;height:28px;
+  background:var(--ink2);border-radius:8px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.import-tip-text{font-size:11px;color:var(--t2);line-height:1.6;font-family:var(--font-mono);}
+.import-tip-text strong{color:var(--t1);}
+
+/* ── PARSE PROGRESS ── */
+.parse-progress{
+  margin:18px 20px 0;
+  background:var(--ink1);border:1px solid var(--b2);
+  border-radius:var(--rx);padding:24px;
+  text-align:center;
+}
+.parse-spinner{
+  width:40px;height:40px;border:2px solid var(--b1);
+  border-top-color:var(--gold);border-radius:50%;
+  animation:spin .8s linear infinite;
+  margin:0 auto 16px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.parse-title{font-family:var(--font-display);font-size:18px;margin-bottom:4px;}
+.parse-sub{font-size:11px;color:var(--t2);font-family:var(--font-mono);}
+
+/* ── LABEL QUEUE ── */
+.label-header{
+  padding:18px 20px 0;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.label-progress-wrap{flex:1;margin-right:12px;}
+.label-progress-text{font-size:10px;color:var(--t2);font-family:var(--font-mono);margin-bottom:5px;letter-spacing:.5px;}
+.label-progress-bar{height:3px;background:var(--ink3);border-radius:2px;overflow:hidden;}
+.label-progress-fill{height:100%;background:var(--gold);border-radius:2px;transition:width .3s ease;}
+.label-skip-all{
+  padding:6px 12px;border-radius:8px;
+  background:var(--ink2);border:1px solid var(--b1);
+  color:var(--t2);font-size:10px;font-weight:600;
+  cursor:pointer;font-family:var(--font-body);letter-spacing:.5px;
+  white-space:nowrap;
+}
+
+.label-card{
+  margin:14px 20px 0;
+  background:var(--ink1);border:1px solid rgba(232,160,48,.18);
+  border-radius:var(--rx);padding:20px;
+  background-image:var(--tape);
+  position:relative;
+}
+.label-card-corner{
+  position:absolute;top:0;right:0;
+  width:0;height:0;
+  border-style:solid;border-width:0 28px 28px 0;
+  border-color:transparent rgba(232,160,48,.18) transparent transparent;
+  border-radius:0 var(--rx) 0 0;
+}
+.label-tx-eyebrow{
+  font-size:9px;color:var(--t2);letter-spacing:2px;text-transform:uppercase;
+  font-family:var(--font-mono);margin-bottom:10px;display:flex;align-items:center;gap:6px;
+}
+.label-tx-eyebrow::before{content:'';flex:1;height:1px;background:var(--b1);}
+.label-tx-ref{
+  font-family:var(--font-mono);font-size:11px;color:var(--t1);
+  margin-bottom:4px;word-break:break-word;
+}
+.label-tx-date{font-size:9px;color:var(--t2);font-family:var(--font-mono);margin-bottom:14px;letter-spacing:.5px;}
+.label-tx-amount{
+  font-family:var(--font-display);font-size:36px;
+  letter-spacing:-1px;margin-bottom:4px;
+}
+.label-tx-amount.credit{color:var(--pos);}
+.label-tx-amount.debit{color:var(--neg);}
+.label-tx-type{
+  display:inline-block;
+  font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  font-family:var(--font-mono);padding:3px 8px;border-radius:20px;margin-bottom:16px;
+}
+.label-tx-type.credit{background:var(--posdim);color:var(--pos);}
+.label-tx-type.debit{background:var(--negdim);color:var(--neg);}
+
+.label-divider{height:1px;background:var(--b1);margin-bottom:16px;}
+
+.label-field label{
+  display:block;font-size:9px;color:var(--t2);
+  text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;
+  font-weight:600;font-family:var(--font-mono);
+}
+.label-field{margin-bottom:11px;}
+.label-cats{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:8px;}
+.label-cat{
+  padding:9px 4px;border-radius:10px;
+  border:1px solid var(--b1);background:var(--ink2);
+  text-align:center;cursor:pointer;transition:all .15s;
+  font-size:11px;color:var(--t1);
+}
+.label-cat.on{border-color:rgba(232,160,48,.4);background:var(--gdim);color:var(--gold);}
+.label-cat:active{transform:scale(.96);}
+.label-cat-ico{font-size:16px;display:block;margin-bottom:2px;}
+.label-cat-name{font-size:9px;font-family:var(--font-mono);letter-spacing:.3px;}
+
+.label-actions{display:flex;gap:8px;margin-top:14px;}
+.label-skip{
+  flex:1;padding:13px;border-radius:12px;
+  background:var(--ink2);border:1px solid var(--b1);
+  color:var(--t2);font-family:var(--font-body);font-size:13px;font-weight:600;
+  cursor:pointer;transition:all .15s;
+}
+.label-save{
+  flex:2;padding:13px;border-radius:12px;
+  background:var(--gold);border:none;
+  color:var(--ink);font-family:var(--font-display);font-style:italic;font-size:16px;
+  cursor:pointer;transition:all .15s;
+}
+.label-save:active,.label-skip:active{opacity:.8;transform:scale(.98);}
+
+/* import summary */
+.import-summary{
+  margin:18px 20px 0;
+  background:var(--ink1);border:1px solid rgba(62,201,122,.2);
+  border-radius:var(--rx);padding:20px;text-align:center;
+  background-image:var(--tape);
+}
+.import-summary-ico{font-size:40px;margin-bottom:10px;}
+.import-summary-title{font-family:var(--font-display);font-size:22px;margin-bottom:4px;}
+.import-summary-sub{font-size:11px;color:var(--t2);font-family:var(--font-mono);line-height:1.7;}
+.import-done-btn{
+  width:100%;padding:14px;margin-top:16px;
+  background:var(--gold);border:none;border-radius:12px;
+  color:var(--ink);font-family:var(--font-display);font-style:italic;font-size:18px;
+  cursor:pointer;transition:opacity .15s;
+}
+.import-done-btn:active{opacity:.85;}
+
+/* import sub-screens */
+.import-screen{display:none;}
+.import-screen.on{display:block;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="screen">
+
+    <!-- ══ HOME ══ -->
+    <div class="pg on" id="pg-home">
+      <div class="hdr">
+        <div>
+          <div class="hdr-brand">Naira<em>Track</em></div>
+          <div class="hdr-tag">Personal Ledger</div>
+        </div>
+        <div class="hdr-right">
+          <div class="hdr-btn" onclick="openBackupSheet()" title="Backup & restore">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v13M8 6l4-4 4 4M5 15v4a2 2 0 002 2h10a2 2 0 002-2v-4"/></svg>
+          </div>
+          <div class="hdr-btn" onclick="gotoTab('import')" title="Import statement">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero">
+        <div class="hero-card">
+          <div class="hero-rule"></div>
+          <div class="hero-eyebrow"><div class="ledger-dot"></div>Net Balance</div>
+          <div class="hero-amount" id="heroAmt"><span class="sym">₦</span><span id="heroNum">0.00</span></div>
+          <div class="hero-divider"></div>
+          <div class="hero-stats">
+            <div class="hstat">
+              <div class="hstat-lbl">Income</div>
+              <div class="hstat-val" style="color:var(--pos)" id="hIncome">₦0</div>
+            </div>
+            <div class="hstat">
+              <div class="hstat-lbl">Spent</div>
+              <div class="hstat-val" style="color:var(--neg)" id="hExpense">₦0</div>
+            </div>
+            <div class="hstat">
+              <div class="hstat-lbl">Loans</div>
+              <div class="hstat-val" style="color:var(--gold)" id="hLoans">₦0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="fab-row">
+        <button class="fab fab-in" onclick="openSheet('income')">
+          <div class="fab-icon">↑</div>
+          <div class="fab-label">Income</div>
+        </button>
+        <button class="fab fab-out" onclick="openSheet('expense')">
+          <div class="fab-icon">↓</div>
+          <div class="fab-label">Expense</div>
+        </button>
+        <button class="fab fab-imp" onclick="gotoTab('import')">
+          <div class="fab-icon">⇩</div>
+          <div class="fab-label">Import</div>
+        </button>
+        <button class="fab fab-loan" onclick="openSheet('loan')">
+          <div class="fab-icon">⟳</div>
+          <div class="fab-label">Loan</div>
+        </button>
+      </div>
+
+      <div class="sec">
+        <div class="sec-head">
+          <div class="sec-title">Recent entries</div>
+          <div class="sec-link" onclick="gotoTab('stats')">All →</div>
+        </div>
+        <div class="tx-wrap" id="txList">
+          <div class="empty">
+            <div class="empty-ico">📒</div>
+            <div class="empty-title">Ledger is empty</div>
+            <div class="empty-sub">Add entries manually above<br>or import your bank statement.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ STATS ══ -->
+    <div class="pg" id="pg-stats">
+      <div class="hdr"><div class="hdr-brand" style="font-size:22px;font-style:italic;">Analytics</div></div>
+      <div class="stats-wrap">
+        <div class="stats-period">
+          <button class="sp-btn on" onclick="setStatsPeriod('month',this)">This Month</button>
+          <button class="sp-btn" onclick="setStatsPeriod('week',this)">This Week</button>
+          <button class="sp-btn" onclick="setStatsPeriod('all',this)">All Time</button>
+        </div>
+        <div class="stats-grid" id="statsGrid"></div>
+        <div class="cats-title">By category</div>
+        <div id="catBars"></div>
+      </div>
+    </div>
+
+    <!-- ══ LOANS ══ -->
+    <div class="pg" id="pg-loans">
+      <div class="hdr">
+        <div class="hdr-brand" style="font-size:22px;font-style:italic;">Loans</div>
+        <div class="hdr-right">
+          <div class="hdr-btn" onclick="openSheet('loan')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="loan-summary" id="loanSummary"></div>
+      <div class="loan-list" id="loanList">
+        <div class="empty"><div class="empty-ico">🤝</div><div class="empty-title">No active loans</div><div class="empty-sub">Track money lent or borrowed.</div></div>
+      </div>
+    </div>
+
+    <!-- ══ AI ══ -->
+    <div class="pg" id="pg-ai">
+      <div class="hdr"><div class="hdr-brand" style="font-size:22px;font-style:italic;">Advisor</div></div>
+      <div class="ai-top">
+        <div class="ai-hero">
+          <div class="ai-hero-eyebrow">Powered by Groq · LLaMA 3.3</div>
+          <div class="ai-hero-title">Your Money, Analysed</div>
+          <div class="ai-hero-sub">Spending score, top insights, and what to do next — based on your actual numbers.</div>
+        </div>
+        <div class="ai-period">
+          <button class="aip on" id="aip-today" onclick="setAIPeriod('today')">Today</button>
+          <button class="aip" id="aip-week" onclick="setAIPeriod('week')">This Week</button>
+          <button class="aip" id="aip-all" onclick="setAIPeriod('all')">All Time</button>
+        </div>
+        <div class="ai-box" id="aiBox">
+          <div class="ai-placeholder">Tap <strong>Analyse Now</strong> to get a breakdown — spending health score, top insights, and actionable tips based on your actual data.</div>
+        </div>
+        <button class="ai-run-btn" onclick="runAI()">Analyse Now</button>
+        <div class="ai-ask-wrap">
+          <input id="aiQ" class="ai-input" placeholder="e.g. where am I overspending?">
+          <button class="ai-send" onclick="askAI()">→</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ IMPORT ══ -->
+    <div class="pg" id="pg-import">
+      <div class="hdr">
+        <div class="hdr-brand" style="font-size:22px;font-style:italic;">Import</div>
+        <div class="hdr-right">
+          <div class="hdr-btn" onclick="gotoTab('home')" title="Back">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload screen -->
+      <div class="import-screen on" id="import-upload">
+        <input type="file" id="fileInput" accept=".csv,.pdf,.txt" onchange="handleFileSelect(this.files[0])">
+
+        <div class="import-hero" id="dropzone"
+          onclick="document.getElementById('fileInput').click()"
+          ondragover="handleDragOver(event)"
+          ondragleave="handleDragLeave(event)"
+          ondrop="handleDrop(event)">
+          <span class="import-hero-ico">📄</span>
+          <div class="import-hero-title">Drop your statement here</div>
+          <div class="import-hero-sub">or tap to browse files from your device</div>
+          <div class="import-supported">
+            <span class="import-tag import-tag-csv">CSV</span>
+            <span class="import-tag import-tag-pdf">PDF</span>
+            <span class="import-tag import-tag-txt">TXT</span>
+          </div>
+        </div>
+
+        <div class="import-tips">
+          <div class="import-tip-title">Works with</div>
+          <div class="import-tip">
+            <div class="import-tip-ico">🏦</div>
+            <div class="import-tip-text"><strong>GTBank, Access, Zenith, UBA, First Bank</strong> — download as CSV/PDF from internet banking or the mobile app.</div>
+          </div>
+          <div class="import-tip">
+            <div class="import-tip-ico">📱</div>
+            <div class="import-tip-text"><strong>OPay, Palmpay, Moniepoint, Kuda</strong> — export transaction history from app settings or request via email.</div>
+          </div>
+          <div class="import-tip">
+            <div class="import-tip-ico">💡</div>
+            <div class="import-tip-text">After importing, you'll <strong>label each transaction</strong> — what was it for, which category. Takes 30 seconds per statement.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Parsing progress screen -->
+      <div class="import-screen" id="import-parsing">
+        <div class="parse-progress">
+          <div class="parse-spinner"></div>
+          <div class="parse-title">Reading statement…</div>
+          <div class="parse-sub" id="parseStatus">Extracting transactions</div>
+        </div>
+      </div>
+
+      <!-- Label queue screen -->
+      <div class="import-screen" id="import-labeling">
+        <div class="label-header">
+          <div class="label-progress-wrap">
+            <div class="label-progress-text" id="labelProgressText">0 of 0</div>
+            <div class="label-progress-bar"><div class="label-progress-fill" id="labelProgressFill" style="width:0%"></div></div>
+          </div>
+          <button class="label-skip-all" onclick="skipAllLabels()">Skip rest</button>
+        </div>
+
+        <div class="label-card" id="labelCard">
+          <div class="label-card-corner"></div>
+          <div class="label-tx-eyebrow">Transaction</div>
+          <div class="label-tx-ref" id="labelRef">—</div>
+          <div class="label-tx-date" id="labelDate">—</div>
+          <div class="label-tx-amount" id="labelAmt">₦0</div>
+          <div class="label-tx-type" id="labelType">debit</div>
+          <div class="label-divider"></div>
+
+          <div class="label-field">
+            <label>What was this for?</label>
+            <input class="fi" id="labelDesc" type="text" placeholder="e.g. Lunch at Mr Biggs, Airtime, Rent…" style="font-size:13px;padding:11px 12px;">
+          </div>
+          <div class="label-field">
+            <label>Category</label>
+            <div class="label-cats" id="labelCats"></div>
+          </div>
+
+          <div class="label-actions">
+            <button class="label-skip" onclick="skipLabel()">Skip</button>
+            <button class="label-save" onclick="saveLabel()">Save & Next</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Done screen -->
+      <div class="import-screen" id="import-done">
+        <div class="import-summary">
+          <div class="import-summary-ico">✅</div>
+          <div class="import-summary-title">Import complete</div>
+          <div class="import-summary-sub" id="importDoneSub">0 transactions added to your ledger.</div>
+          <button class="import-done-btn" onclick="finishImport()">View Ledger</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /screen -->
+
+  <!-- NAV -->
+  <div id="nav">
+    <button class="nb on" id="nb-home" onclick="gotoTab('home')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 10L12 3l9 7v11a1 1 0 01-1 1H4a1 1 0 01-1-1V10z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <div class="nb-lbl">Home</div><div class="nb-dot"></div>
+    </button>
+    <button class="nb" id="nb-stats" onclick="gotoTab('stats')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></svg>
+      <div class="nb-lbl">Stats</div><div class="nb-dot"></div>
+    </button>
+    <button class="nb" id="nb-loans" onclick="gotoTab('loans')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 8v5l3 3"/></svg>
+      <div class="nb-lbl">Loans</div><div class="nb-dot"></div>
+    </button>
+    <button class="nb" id="nb-import" onclick="gotoTab('import')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      <div class="nb-lbl">Import</div><div class="nb-dot"></div>
+    </button>
+    <button class="nb" id="nb-ai" onclick="gotoTab('ai')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2a7 7 0 017 7c0 3.5-2 5.8-5 7V18H10v-2C7 14.8 5 12.5 5 9a7 7 0 017-7z"/><line x1="10" y1="22" x2="14" y2="22"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
+      <div class="nb-lbl">Advisor</div><div class="nb-dot"></div>
+    </button>
+  </div>
+</div>
+
+<!-- MANUAL ENTRY SHEET -->
+<div id="overlay" onclick="closeSheet(event)">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sheetTitle">Add entry</div>
+    <div class="type-row">
+      <button class="tp" id="tp-income" onclick="setType('income')">↑ Income</button>
+      <button class="tp" id="tp-expense" onclick="setType('expense')">↓ Expense</button>
+      <button class="tp" id="tp-loan" onclick="setType('loan')">⟳ Loan</button>
+    </div>
+    <div class="fl">
+      <label>Amount (₦)</label>
+      <div class="amount-wrap">
+        <span class="amount-sym">₦</span>
+        <input class="fi fi-amount" id="fAmt" type="number" inputmode="decimal" placeholder="0.00">
+      </div>
+    </div>
+    <div class="fl">
+      <label>Description</label>
+      <input class="fi" id="fDesc" type="text" placeholder="What was this for?">
+    </div>
+    <div class="fl">
+      <label>Category</label>
+      <select class="fi" id="fCat">
+        <option value="Food & Drinks">🍔 Food & Drinks</option>
+        <option value="Transport">🚌 Transport</option>
+        <option value="Bills & Utilities">💡 Bills & Utilities</option>
+        <option value="Business">💼 Business</option>
+        <option value="Entertainment">🎮 Entertainment</option>
+        <option value="Savings">🏦 Savings</option>
+        <option value="Health">🏥 Health</option>
+        <option value="Shopping">🛍️ Shopping</option>
+        <option value="Family">👨‍👩‍👧 Family</option>
+        <option value="Other">📌 Other</option>
+      </select>
+    </div>
+    <div class="fl" id="fPersonWrap" style="display:none">
+      <label>Person / Who?</label>
+      <input class="fi" id="fPerson" type="text" placeholder="Name">
+    </div>
+    <div class="fl" id="fDirWrap" style="display:none">
+      <label>Direction</label>
+      <select class="fi" id="fDir">
+        <option value="owed">They owe me (I gave loan)</option>
+        <option value="owe">I owe them (I took loan)</option>
+      </select>
+    </div>
+    <div class="fl">
+      <label>Date</label>
+      <input class="fi" id="fDate" type="date">
+    </div>
+    <button class="save-btn" onclick="save()">Save entry</button>
+  </div>
+</div>
+
+<!-- BACKUP & RESTORE SHEET -->
+<div id="backupOverlay" onclick="closeBackupSheet(event)">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Backup & restore</div>
+    <div style="font-size:12px;color:var(--t1);line-height:1.5;margin-bottom:18px;">
+      Your data lives only on this device. Export a backup file before switching browsers, reinstalling, or moving to the installed app — then import it there.
+    </div>
+    <button class="save-btn" style="margin-bottom:10px;" onclick="exportBackup()">⇩ Export backup file</button>
+    <button class="save-btn" style="background:var(--ink3);color:var(--t0);" onclick="document.getElementById('backupFileInput').click()">⇧ Import backup file</button>
+    <input type="file" id="backupFileInput" accept="application/json" style="display:none" onchange="importBackup(event)">
+    <div id="backupStatus" style="font-size:11px;color:var(--t2);margin-top:12px;text-align:center;"></div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+//  DATA
+// ══════════════════════════════════════════════
+let txns  = JSON.parse(localStorage.getItem('nt3_tx') || '[]');
+let loans = JSON.parse(localStorage.getItem('nt3_ln') || '[]');
+let curType = 'expense';
+let aiPeriod = 'today';
+let statsPeriod = 'month';
+
+// ── API KEY: never hardcoded ──
+// Stored in sessionStorage only (cleared when tab closes)
+function getGroqKey(){
+  let k = sessionStorage.getItem('nt3_gk');
+  if(!k){
+    k = prompt('Enter your Groq API key to use AI features.\n(Stored for this session only — never saved to disk.)');
+    if(k && k.trim().startsWith('gsk_')){
+      sessionStorage.setItem('nt3_gk', k.trim());
+    } else {
+      return null;
+    }
+  }
+  return k;
+}
+function clearGroqKey(){
+  sessionStorage.removeItem('nt3_gk');
+}
+
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+
+const CATS = [
+  {id:'Food & Drinks',  ico:'🍔', name:'Food'},
+  {id:'Transport',      ico:'🚌', name:'Transport'},
+  {id:'Bills & Utilities',ico:'💡',name:'Bills'},
+  {id:'Business',       ico:'💼', name:'Business'},
+  {id:'Entertainment',  ico:'🎮', name:'Fun'},
+  {id:'Savings',        ico:'🏦', name:'Savings'},
+  {id:'Health',         ico:'🏥', name:'Health'},
+  {id:'Shopping',       ico:'🛍️', name:'Shopping'},
+  {id:'Family',         ico:'👨‍👩‍👧',name:'Family'},
+  {id:'Other',          ico:'📌', name:'Other'},
+];
+const EMOJI = Object.fromEntries(CATS.map(c=>[c.id, c.ico]));
+const CLR   = {
+  'Food & Drinks':'#E8704E','Transport':'#4EC4C4','Bills & Utilities':'#E8C44E',
+  'Business':'#6BA3E8','Entertainment':'#A78BFA','Savings':'#3EC97A',
+  'Health':'#E8A030','Shopping':'#EC4899','Family':'#4EE87A','Other':'#7A7264'
+};
+const ICO_BG = {income:'rgba(62,201,122,.12)',expense:'rgba(232,80,80,.12)',loan:'rgba(107,163,232,.12)'};
+
+// ── SECURITY: HTML escape for all user data in innerHTML ──
+function esc(str){
+  if(str == null) return '';
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+// ══════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════
+function persist(){
+  localStorage.setItem('nt3_tx', JSON.stringify(txns));
+  localStorage.setItem('nt3_ln', JSON.stringify(loans));
+}
+
+// ══════════════════════════════════════════════
+//  BACKUP & RESTORE
+// ══════════════════════════════════════════════
+function openBackupSheet(){
+  document.getElementById('backupStatus').textContent = '';
+  document.getElementById('backupOverlay').classList.add('show');
+}
+function closeBackupSheet(e){
+  if(!e || e.target===document.getElementById('backupOverlay')) document.getElementById('backupOverlay').classList.remove('show');
+}
+
+function exportBackup(){
+  const payload = {
+    app: 'NairaTrack',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    txns,
+    loans
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const stamp = today();
+  a.href = url;
+  a.download = `nairatrack-backup-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  document.getElementById('backupStatus').textContent = 'Backup file downloaded.';
+}
+
+function importBackup(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('backupStatus');
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const data = JSON.parse(reader.result);
+      if(!data || !Array.isArray(data.txns) || !Array.isArray(data.loans)){
+        statusEl.textContent = "That file doesn't look like a NairaTrack backup.";
+        statusEl.style.color = 'var(--neg)';
+        return;
+      }
+      const merge = confirm(
+        `This backup has ${data.txns.length} transaction(s) and ${data.loans.length} loan(s).\n\nOK = Merge with existing data\nCancel = Replace existing data entirely`
+      );
+      if(merge){
+        const existingIds = new Set(txns.map(t=>t.id));
+        data.txns.forEach(t=>{ if(!existingIds.has(t.id)) txns.push(t); });
+        const existingLoanIds = new Set(loans.map(l=>l.id));
+        data.loans.forEach(l=>{ if(!existingLoanIds.has(l.id)) loans.push(l); });
+      } else {
+        txns  = data.txns;
+        loans = data.loans;
+      }
+      persist();
+      updateBalance();
+      renderTxns();
+      statusEl.style.color = 'var(--pos)';
+      statusEl.textContent = 'Backup restored successfully.';
+    } catch(err){
+      statusEl.style.color = 'var(--neg)';
+      statusEl.textContent = 'Could not read that file. Is it a valid backup?';
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function shortFmt(n){
+  if(n>=1e6) return '₦'+(n/1e6).toFixed(1)+'M';
+  if(n>=1e3) return '₦'+(n/1e3).toFixed(1)+'k';
+  return '₦'+n.toFixed(0);
+}
+function fullFmt(n){ return '₦'+n.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function today(){ return new Date().toISOString().split('T')[0]; }
+function niceDate(d){ return new Date(d+'T00:00:00').toLocaleDateString('en-NG',{month:'short',day:'numeric'}); }
+
+// ══════════════════════════════════════════════
+//  TABS
+// ══════════════════════════════════════════════
+function gotoTab(t){
+  document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));
+  const pg = document.getElementById('pg-'+t);
+  const nb = document.getElementById('nb-'+t);
+  if(pg) pg.classList.add('on');
+  if(nb) nb.classList.add('on');
+  document.getElementById('screen').scrollTo(0,0);
+  if(t==='stats')  renderStats();
+  if(t==='loans')  renderLoans();
+  if(t==='home')   renderTxns();
+  if(t==='import') resetImportFlow();
+}
+
+// ══════════════════════════════════════════════
+//  BALANCE
+// ══════════════════════════════════════════════
+function updateBalance(){
+  const inc  = txns.filter(t=>t.type==='income').reduce((s,t)=>s+t.amt,0);
+  const exp  = txns.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amt,0);
+  const lnet = loans.filter(l=>!l.settled).reduce((s,l)=>s+(l.dir==='owed'?l.amt:-l.amt),0);
+  const bal  = inc - exp;
+  document.getElementById('heroNum').textContent = (bal<0?'-':'')+Math.abs(bal).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2});
+  document.getElementById('heroAmt').className = 'hero-amount'+(bal<0?' neg':'');
+  document.getElementById('hIncome').textContent  = shortFmt(inc);
+  document.getElementById('hExpense').textContent = shortFmt(exp);
+  document.getElementById('hLoans').textContent   = shortFmt(Math.abs(lnet));
+}
+
+// ══════════════════════════════════════════════
+//  TRANSACTIONS
+// ══════════════════════════════════════════════
+function renderTxns(){
+  const el = document.getElementById('txList');
+  if(!txns.length){
+    el.innerHTML=`<div class="empty"><div class="empty-ico">📒</div><div class="empty-title">Ledger is empty</div><div class="empty-sub">Add entries manually above<br>or import your bank statement.</div></div>`;
+    return;
+  }
+  el.innerHTML = txns.slice(0,50).map(t=>`
+    <div class="tx${t.imported?' tx-imported':''}">
+      <div class="tx-ico" style="background:${ICO_BG[t.type]}">${EMOJI[t.cat]||'📌'}</div>
+      <div class="tx-body">
+        <div class="tx-name">${esc(t.desc||t.ref||'Unlabelled')}</div>
+        <div class="tx-meta">${esc(t.cat)} · ${niceDate(t.date)}${t.imported?'<span class="tx-source">Imported</span>':''}</div>
+      </div>
+      <div class="tx-right">
+        <div class="tx-amt" style="color:${t.type==='income'?'var(--pos)':'var(--neg)'}">${t.type==='income'?'+':'-'}${shortFmt(t.amt)}</div>
+        <div class="tx-time">${niceDate(t.date)}</div>
+      </div>
+      <button class="tx-del" onclick="delTx(${Number(t.id)})">✕</button>
+    </div>
+  `).join('');
+}
+
+function delTx(id){
+  if(!confirm('Remove this entry?')) return;
+  txns = txns.filter(t=>t.id!==id);
+  persist(); renderTxns(); updateBalance();
+}
+
+// ══════════════════════════════════════════════
+//  MANUAL SHEET
+// ══════════════════════════════════════════════
+function openSheet(type){
+  curType=type; setType(type);
+  document.getElementById('fAmt').value='';
+  document.getElementById('fDesc').value='';
+  document.getElementById('fPerson').value='';
+  document.getElementById('fDate').value=today();
+  document.getElementById('overlay').classList.add('show');
+  setTimeout(()=>document.getElementById('fAmt').focus(),350);
+}
+function closeSheet(e){ if(e.target===document.getElementById('overlay')) document.getElementById('overlay').classList.remove('show'); }
+function closeSheetDirect(){ document.getElementById('overlay').classList.remove('show'); }
+
+function setType(t){
+  curType=t;
+  ['income','expense','loan'].forEach(x=>{
+    const b=document.getElementById('tp-'+x);
+    b.className='tp';
+    if(x===t) b.classList.add('on-'+t);
+  });
+  document.getElementById('fPersonWrap').style.display = t==='loan'?'block':'none';
+  document.getElementById('fDirWrap').style.display    = t==='loan'?'block':'none';
+  const titles={income:'Add income',expense:'Add expense',loan:'Add loan'};
+  document.getElementById('sheetTitle').textContent=titles[t];
+}
+
+function save(){
+  const amt  = parseFloat(document.getElementById('fAmt').value);
+  const desc = document.getElementById('fDesc').value.trim();
+  const cat  = document.getElementById('fCat').value;
+  const date = document.getElementById('fDate').value;
+  if(!amt||amt<=0){ alert('Enter a valid amount'); return; }
+  if(!desc){ alert('Add a description'); return; }
+
+  if(curType==='loan'){
+    const person=document.getElementById('fPerson').value.trim();
+    if(!person){ alert("Enter the person's name"); return; }
+    const dir=document.getElementById('fDir').value;
+    loans.unshift({id:Date.now(),amt,desc,cat,date,person,dir,settled:false});
+    persist(); closeSheetDirect(); renderLoans(); updateBalance();
+    return;
+  }
+  txns.unshift({id:Date.now(),type:curType,amt,desc,cat,date});
+  persist(); closeSheetDirect(); renderTxns(); updateBalance();
+  const h=document.getElementById('heroAmt');
+  h.style.transform='scale(1.04)';
+  setTimeout(()=>h.style.transform='',300);
+}
+
+// ══════════════════════════════════════════════
+//  STATS
+// ══════════════════════════════════════════════
+function filterTxns(period){
+  const now=new Date();
+  return txns.filter(t=>{
+    const d=new Date(t.date+'T00:00:00');
+    if(period==='month') return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();
+    if(period==='week'){ const diff=(now-d)/864e5; return diff<=7; }
+    return true;
+  });
+}
+function setStatsPeriod(p,btn){
+  statsPeriod=p;
+  document.querySelectorAll('.sp-btn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  renderStats();
+}
+function renderStats(){
+  const data=filterTxns(statsPeriod);
+  const inc=data.filter(t=>t.type==='income').reduce((s,t)=>s+t.amt,0);
+  const exp=data.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amt,0);
+  const saved=inc-exp;
+  const rate=inc>0?Math.round((saved/inc)*100):0;
+  document.getElementById('statsGrid').innerHTML=`
+    <div class="sg"><div class="sg-lbl">Income</div><div class="sg-val" style="color:var(--pos)">${shortFmt(inc)}</div></div>
+    <div class="sg"><div class="sg-lbl">Spent</div><div class="sg-val" style="color:var(--neg)">${shortFmt(exp)}</div></div>
+    <div class="sg"><div class="sg-lbl">Net Saved</div><div class="sg-val" style="color:${saved>=0?'var(--pos)':'var(--neg)'}">${shortFmt(Math.abs(saved))}</div></div>
+    <div class="sg"><div class="sg-lbl">Save Rate</div><div class="sg-val" style="color:var(--gold)">${rate}%</div></div>
+  `;
+  const cats={};
+  data.filter(t=>t.type==='expense').forEach(t=>{ cats[t.cat]=(cats[t.cat]||0)+t.amt; });
+  const sorted=Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+  const max=sorted[0]?.[1]||1;
+  if(!sorted.length){ document.getElementById('catBars').innerHTML='<div style="padding:0 0 8px;color:var(--t2);font-size:12px;font-family:var(--font-mono);">No expenses yet.</div>'; return; }
+  document.getElementById('catBars').innerHTML=sorted.map(([c,v])=>`
+    <div class="cat-row">
+      <div class="cat-emoji">${EMOJI[c]||'📌'}</div>
+      <div class="cat-name">${c.split(' ')[0]}</div>
+      <div class="cat-bar-wrap"><div class="cat-bar-fill" style="width:${(v/max*100).toFixed(0)}%;background:${CLR[c]||'#7A7264'}"></div></div>
+      <div class="cat-amt" style="color:${CLR[c]||'#7A7264'}">${shortFmt(v)}</div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════════════
+//  LOANS
+// ══════════════════════════════════════════════
+function renderLoans(){
+  const active=loans.filter(l=>!l.settled);
+  const iOwe   =active.filter(l=>l.dir==='owe').reduce((s,l)=>s+l.amt,0);
+  const theyOwe=active.filter(l=>l.dir==='owed').reduce((s,l)=>s+l.amt,0);
+  document.getElementById('loanSummary').innerHTML=`
+    <div class="ls ls-green"><div class="ls-lbl">They owe me</div><div class="ls-val" style="color:var(--pos)">${shortFmt(theyOwe)}</div></div>
+    <div class="ls ls-amber"><div class="ls-lbl">I owe them</div><div class="ls-val" style="color:var(--gold)">${shortFmt(iOwe)}</div></div>
+  `;
+  if(!active.length){
+    document.getElementById('loanList').innerHTML=`<div class="empty"><div class="empty-ico">🤝</div><div class="empty-title">No active loans</div><div class="empty-sub">Track money lent or borrowed.</div></div>`;
+    return;
+  }
+  document.getElementById('loanList').innerHTML=active.map(l=>`
+    <div class="loan-card">
+      <div class="lc-top">
+        <div>
+          <div class="lc-person">${esc(l.person)}</div>
+          <div class="lc-desc">${esc(l.desc)}</div>
+        </div>
+        <div class="lc-right">
+          <div class="lc-amt" style="color:${l.dir==='owed'?'var(--pos)':'var(--gold)'}">${shortFmt(l.amt)}</div>
+          <span class="badge ${l.dir==='owed'?'badge-g':'badge-a'}">${l.dir==='owed'?'They owe me':'I owe'}</span>
+        </div>
+      </div>
+      <div class="lc-date">📅 ${niceDate(l.date)}</div>
+      <div class="lc-actions">
+        <button class="lc-btn settle" onclick="settleLoan(${Number(l.id)})">✓ Settled</button>
+        <button class="lc-btn del" onclick="delLoan(${Number(l.id)})">✕ Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+function settleLoan(id){ loans=loans.map(l=>l.id===id?{...l,settled:true}:l); persist(); renderLoans(); updateBalance(); }
+function delLoan(id){ if(!confirm('Delete loan?')) return; loans=loans.filter(l=>l.id!==id); persist(); renderLoans(); updateBalance(); }
+
+// ══════════════════════════════════════════════
+//  AI
+// ══════════════════════════════════════════════
+function setAIPeriod(p){
+  aiPeriod=p;
+  document.querySelectorAll('.aip').forEach(b=>b.classList.remove('on'));
+  document.getElementById('aip-'+p).classList.add('on');
+}
+function buildCtx(period){
+  const now=new Date();
+  const data=txns.filter(t=>{
+    const d=new Date(t.date+'T00:00:00');
+    if(period==='today') return d.toDateString()===now.toDateString();
+    if(period==='week') return (now-d)/864e5<=7;
+    return true;
+  });
+  const inc=data.filter(t=>t.type==='income').reduce((s,t)=>s+t.amt,0);
+  const exp=data.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amt,0);
+  const cats={};
+  data.filter(t=>t.type==='expense').forEach(t=>{ cats[t.cat]=(cats[t.cat]||0)+t.amt; });
+  const lns=loans.filter(l=>!l.settled).map(l=>`${l.person} ${l.dir==='owed'?'owes me':'I owe'} ₦${l.amt} (${l.desc})`).join('; ')||'None';
+  const label={today:'today',week:'this week',all:'all time'}[period];
+  return `You are a sharp Nigerian personal finance advisor. Analyse for ${label}:
+INCOME: ₦${inc.toFixed(2)} | EXPENSES: ₦${exp.toFixed(2)} | NET: ₦${(inc-exp).toFixed(2)} | SAVE RATE: ${inc>0?(((inc-exp)/inc)*100).toFixed(1):0}%
+CATEGORIES: ${Object.entries(cats).map(([k,v])=>`${k}: ₦${v.toFixed(2)}`).join(', ')||'None'}
+LOANS: ${lns}
+Give: 1) Spending Health Score (X/10) 2) Top 2 observations with real numbers 3) 2 quick wins for today 4) Motivating close (Nigerian style).
+Plain text only. Under 220 words. Be a smart friend, not a bank.`;
+}
+async function callGroq(prompt){
+  const key = getGroqKey();
+  if(!key){
+    throw new Error('No API key provided. Reload and enter your Groq key.');
+  }
+  const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({model:GROQ_MODEL,max_tokens:600,messages:[{role:'user',content:prompt}]})
+  });
+  const d=await r.json();
+  if(d.error){
+    // If key is invalid, clear it so user is prompted again next time
+    if(d.error.code==='invalid_api_key' || r.status===401) clearGroqKey();
+    throw new Error(d.error.message);
+  }
+  return d.choices?.[0]?.message?.content||'No response.';
+}
+function fmtAI(t){
+  // Strip all HTML first, then re-apply only safe formatting
+  const stripped = esc(t);
+  return stripped
+    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g,'<em>$1</em>')
+    .replace(/\n/g,'<br>');
+}
+async function runAI(){
+  const box=document.getElementById('aiBox');
+  box.innerHTML=`<div class="ai-thinking"><div class="dots"><span></span><span></span><span></span></div>&nbsp;Crunching your numbers…</div>`;
+  try{
+    const txt=await callGroq(buildCtx(aiPeriod));
+    box.innerHTML=`<div class="ai-out">${fmtAI(txt)}</div>`;
+  }catch(e){
+    box.innerHTML=`<div class="ai-out" style="color:var(--neg)">⚠ ${esc(e.message)}</div>`;
+  }
+}
+async function askAI(){
+  const q=document.getElementById('aiQ').value.trim();
+  if(!q) return;
+  const box=document.getElementById('aiBox');
+  box.innerHTML=`<div class="ai-thinking"><div class="dots"><span></span><span></span><span></span></div>&nbsp;Thinking…</div>`;
+  const p=buildCtx(aiPeriod)+`\n\nUser question: ${q}\nAnswer directly. Be concise and practical.`;
+  try{
+    const txt=await callGroq(p);
+    box.innerHTML=`<div class="ai-out">${fmtAI(txt)}</div>`;
+  }catch(e){
+    box.innerHTML=`<div class="ai-out" style="color:var(--neg)">⚠ ${esc(e.message)}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════
+//  IMPORT FLOW
+// ══════════════════════════════════════════════
+let importQueue = []; // parsed raw txns waiting to be labelled
+let importIdx   = 0;
+let importDone  = 0;
+let labelCatSel = 'Other';
+
+function resetImportFlow(){
+  showImportScreen('upload');
+  importQueue = [];
+  importIdx   = 0;
+  importDone  = 0;
+}
+
+function showImportScreen(name){
+  document.querySelectorAll('.import-screen').forEach(s=>s.classList.remove('on'));
+  document.getElementById('import-'+name).classList.add('on');
+}
+
+// ── DRAG + DROP ──
+function handleDragOver(e){ e.preventDefault(); document.getElementById('dropzone').classList.add('dragover'); }
+function handleDragLeave(e){ document.getElementById('dropzone').classList.remove('dragover'); }
+function handleDrop(e){
+  e.preventDefault();
+  document.getElementById('dropzone').classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if(file) processFile(file);
+}
+function handleFileSelect(file){ if(file) processFile(file); }
+
+async function processFile(file){
+  showImportScreen('parsing');
+  document.getElementById('parseStatus').textContent = 'Reading '+esc(file.name)+'…';
+
+  // ── Validate file type by both extension AND MIME type ──
+  const ext = file.name.split('.').pop().toLowerCase();
+  const allowedExts  = ['csv','pdf','txt'];
+  const allowedMimes = ['text/csv','application/pdf','text/plain','application/octet-stream',''];
+  if(!allowedExts.includes(ext)){
+    showImportScreen('upload');
+    alert('Unsupported file type. Please upload a CSV, PDF, or TXT file.');
+    return;
+  }
+  if(file.type && !allowedMimes.some(m => file.type.startsWith(m.split('/')[0]) || file.type===m)){
+    // Warn but don't hard-block — MIME sniffing is unreliable on mobile
+    console.warn('MIME type mismatch:', file.type);
+  }
+
+  // ── File size guard (10MB max) ──
+  if(file.size > 10 * 1024 * 1024){
+    showImportScreen('upload');
+    alert('File is too large (max 10MB). Try a smaller date range export.');
+    return;
+  }
+
+  try{
+    let rows = [];
+    if(ext==='csv' || ext==='txt'){
+      const text = await file.text();
+      rows = parseCSVTransactions(text);
+    } else if(ext==='pdf'){
+      rows = await parsePDFTransactions(file);
+    }
+    if(!rows.length) throw new Error('No transactions found. Try a CSV export from your bank app.');
+    importQueue = rows;
+    importIdx   = 0;
+    importDone  = 0;
+    buildLabelCats();
+    showLabelCard();
+    showImportScreen('labeling');
+  } catch(err){
+    showImportScreen('upload');
+    alert('⚠ '+err.message);
+  }
+}
+
+// ── CSV PARSER ──
+// Handles GTBank, Access, Zenith, OPay, Kuda, generic formats
+function parseCSVTransactions(text){
+  // Try PapaParse
+  const result = Papa.parse(text.trim(), {header:true, skipEmptyLines:true, dynamicTyping:false});
+  const rows = result.data;
+  if(!rows.length) return [];
+
+  const headers = Object.keys(rows[0]).map(h=>h.trim().toLowerCase());
+
+  // Header-map strategies — order matters
+  const STRATS = [
+    // GTBank / Access / common Nigerian bank
+    {date:['transaction date','date','value date','trans date','posting date'],
+     ref: ['description','narration','transaction description','details','particulars','remarks','reference'],
+     debit:['debit','debit(ngn)','withdrawal','amount debit','dr','dr amount','debit amount'],
+     credit:['credit','credit(ngn)','deposit','amount credit','cr','cr amount','credit amount'],
+     amount:['amount','transaction amount','trans amount']},
+  ];
+
+  function findCol(possibles){
+    for(const p of possibles){
+      const match = headers.find(h=>h===p || h.includes(p));
+      if(match) return Object.keys(rows[0]).find(k=>k.trim().toLowerCase()===match);
+    }
+    return null;
+  }
+
+  const s = STRATS[0];
+  const dateCol   = findCol(s.date);
+  const refCol    = findCol(s.ref);
+  const debitCol  = findCol(s.debit);
+  const creditCol = findCol(s.credit);
+  const amtCol    = findCol(s.amount);
+
+  if(!dateCol && !refCol) return []; // can't parse
+
+  const txns = [];
+  for(const row of rows){
+    const rawDate = (row[dateCol]||'').toString().trim();
+    const ref     = (row[refCol]||'').toString().trim();
+    if(!rawDate && !ref) continue;
+
+    const date = normaliseDate(rawDate) || today();
+
+    // determine debit / credit
+    let debit  = parseAmt(row[debitCol]);
+    let credit = parseAmt(row[creditCol]);
+
+    if(!debitCol && !creditCol && amtCol){
+      const val = parseAmt(row[amtCol]);
+      if(val > 0) credit = val;
+      else debit = Math.abs(val);
+    }
+
+    if(debit<=0 && credit<=0) continue;
+
+    if(debit>0){
+      txns.push({rawDate, date, ref, amt:debit, kind:'debit'});
+    }
+    if(credit>0){
+      txns.push({rawDate, date, ref, amt:credit, kind:'credit'});
+    }
+  }
+  return txns;
+}
+
+function parseAmt(v){
+  if(v===undefined||v===null||v==='') return 0;
+  const n = parseFloat(v.toString().replace(/[,₦\s]/g,''));
+  return isNaN(n)?0:Math.abs(n);
+}
+
+function normaliseDate(raw){
+  if(!raw) return null;
+  // try common formats: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, DD-Mon-YYYY
+  const clean = raw.replace(/\s+/g,' ').trim();
+  let d;
+
+  // ISO
+  if(/^\d{4}-\d{2}-\d{2}/.test(clean)){
+    d=new Date(clean.substring(0,10));
+    if(!isNaN(d)) return d.toISOString().split('T')[0];
+  }
+  // DD/MM/YYYY or DD-MM-YYYY
+  const dmy=/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/.exec(clean);
+  if(dmy){
+    const [,dd,mm,yyyy]=dmy;
+    const y=yyyy.length===2?'20'+yyyy:yyyy;
+    d=new Date(`${y}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`);
+    if(!isNaN(d)) return d.toISOString().split('T')[0];
+  }
+  // DD-Mon-YYYY (e.g. 14-Jan-2025)
+  const dMonY=/^(\d{1,2})[\/\-\s]([A-Za-z]{3})[\/\-\s](\d{2,4})/.exec(clean);
+  if(dMonY){
+    d=new Date(raw);
+    if(!isNaN(d)) return d.toISOString().split('T')[0];
+  }
+  // Fallback
+  d=new Date(raw);
+  if(!isNaN(d)) return d.toISOString().split('T')[0];
+  return null;
+}
+
+// ── PDF PARSER ──
+async function parsePDFTransactions(file){
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const buf  = await file.arrayBuffer();
+  const pdf  = await pdfjsLib.getDocument({data:buf}).promise;
+  let allText='';
+  for(let i=1;i<=pdf.numPages;i++){
+    document.getElementById('parseStatus').textContent=`Reading page ${i} of ${pdf.numPages}…`;
+    const page   = await pdf.getPage(i);
+    const content= await page.getTextContent();
+    allText += content.items.map(s=>s.str).join(' ')+'\n';
+  }
+  // Try CSV-like lines first, then heuristic
+  const csvAttempt = parseCSVTransactions(allText);
+  if(csvAttempt.length) return csvAttempt;
+  return parsePDFHeuristic(allText);
+}
+
+function parsePDFHeuristic(text){
+  // Look for lines that have a date + amount pattern
+  // SAFE regex: bounded quantifier {3,80} instead of open-ended lazy match
+  const lines = text.split(/\n+/);
+  const txns = [];
+  const dateAmt = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})\s+(.{3,80})\s+([\d,]+(?:\.\d{2})?)\s*(DR|CR|Dr|Cr|debit|credit)?/i;
+
+  for(const line of lines){
+    // Guard: skip extremely long lines to prevent slow matching
+    if(line.length > 500) continue;
+    const m = dateAmt.exec(line);
+    if(!m) continue;
+    const date  = normaliseDate(m[1]) || today();
+    const ref   = m[2].trim().substring(0, 200); // cap ref length
+    const amt   = parseAmt(m[3]);
+    if(amt<=0) continue;
+    const kind  = /DR|Dr|debit/i.test(m[4]||'')?'debit':'credit';
+    txns.push({rawDate:m[1], date, ref, amt, kind});
+  }
+  return txns;
+}
+
+// ── LABEL QUEUE ──
+function buildLabelCats(){
+  const wrap = document.getElementById('labelCats');
+  // Use data-id attribute instead of inline onclick with user-derived category ids
+  // Category ids are from our own CATS constant — safe, but we escape anyway
+  wrap.innerHTML = CATS.map(c=>`
+    <div class="label-cat" id="lcat-${esc(c.id.replace(/\s/g,'_'))}" data-catid="${esc(c.id)}">
+      <span class="label-cat-ico">${c.ico}</span>
+      <span class="label-cat-name">${esc(c.name)}</span>
+    </div>
+  `).join('');
+  // Event delegation — no inline onclick
+  wrap.addEventListener('click', e=>{
+    const cat = e.target.closest('[data-catid]');
+    if(cat) selectLabelCat(cat.dataset.catid);
+  });
+  selectLabelCat('Other');
+}
+
+function selectLabelCat(id){
+  document.querySelectorAll('.label-cat').forEach(el=>el.classList.remove('on'));
+  const el = document.getElementById('lcat-'+id.replace(/\s/g,'_'));
+  if(el) el.classList.add('on');
+  labelCatSel = id;
+}
+
+function showLabelCard(){
+  const total = importQueue.length;
+  const idx   = importIdx;
+  if(idx >= total){
+    finalizeLabelQueue();
+    return;
+  }
+  const tx = importQueue[idx];
+  document.getElementById('labelProgressText').textContent = `${idx+1} of ${total}`;
+  document.getElementById('labelProgressFill').style.width = ((idx/total)*100)+'%';
+
+  document.getElementById('labelRef').textContent  = tx.ref || '(No description)';
+  document.getElementById('labelDate').textContent = tx.rawDate || tx.date;
+  document.getElementById('labelAmt').textContent  = '₦'+tx.amt.toLocaleString('en-NG',{minimumFractionDigits:2});
+  document.getElementById('labelAmt').className    = 'label-tx-amount '+(tx.kind==='credit'?'credit':'debit');
+  document.getElementById('labelType').textContent = tx.kind==='credit'?'Credit · Income':'Debit · Expense';
+  document.getElementById('labelType').className   = 'label-tx-type '+(tx.kind==='credit'?'credit':'debit');
+  document.getElementById('labelDesc').value = '';
+  // Pre-guess category from ref text
+  const ref = (tx.ref||'').toLowerCase();
+  let guess = 'Other';
+  if(/food|eat|restaurant|kitchen|suya|shawarma|chicken|rice|pizza|buka|canteen|lunch|dinner|breakfast|mr bigg|chicken republic|domino/i.test(ref)) guess='Food & Drinks';
+  else if(/uber|bolt|okada|transport|bus|taxi|danfo|park|ride|fuel|petrol|diesel|keke/i.test(ref)) guess='Transport';
+  else if(/airtime|data|dstv|gotv|light|phcn|nepa|disco|internet|wifi|cable|subscription|electricity|bill|utility|mtn|glo|airtel|9mobile/i.test(ref)) guess='Bills & Utilities';
+  else if(/salary|income|payment|freelance|client|invoice|project|business|revenue|commission/i.test(ref)) guess='Business';
+  else if(/cinema|movie|netflix|spotify|game|fun|party|club|bar|hotel|lounge|beer/i.test(ref)) guess='Entertainment';
+  else if(/savings|save|investment|piggyvest|cowrywise|stash|wallet top/i.test(ref)) guess='Savings';
+  else if(/hospital|pharmacy|drug|medical|health|clinic|doctor|chemist/i.test(ref)) guess='Health';
+  else if(/shop|store|mall|market|jumia|konga|jiji|buy|purchase|amazon/i.test(ref)) guess='Shopping';
+  else if(/mum|dad|mom|parent|sister|brother|family|wife|husband|child|school fees/i.test(ref)) guess='Family';
+
+  selectLabelCat(guess);
+}
+
+function saveLabel(){
+  const tx   = importQueue[importIdx];
+  const desc = document.getElementById('labelDesc').value.trim() || tx.ref || 'Imported transaction';
+  const cat  = labelCatSel;
+  txns.unshift({
+    id: Date.now()+(importIdx),
+    type: tx.kind==='credit'?'income':'expense',
+    amt:  tx.amt,
+    desc,
+    cat,
+    date: tx.date,
+    ref:  tx.ref,
+    imported: true
+  });
+  importDone++;
+  importIdx++;
+  persist(); updateBalance();
+  showLabelCard();
+}
+
+function skipLabel(){
+  // Save with raw ref as desc, guessed category
+  const tx   = importQueue[importIdx];
+  const cat  = labelCatSel;
+  txns.unshift({
+    id: Date.now()+(importIdx),
+    type: tx.kind==='credit'?'income':'expense',
+    amt:  tx.amt,
+    desc: tx.ref || 'Imported transaction',
+    cat,
+    date: tx.date,
+    ref:  tx.ref,
+    imported: true
+  });
+  importDone++;
+  importIdx++;
+  persist(); updateBalance();
+  showLabelCard();
+}
+
+function skipAllLabels(){
+  // Save remaining with raw refs
+  while(importIdx < importQueue.length){
+    const tx  = importQueue[importIdx];
+    txns.unshift({
+      id: Date.now()+(importIdx),
+      type: tx.kind==='credit'?'income':'expense',
+      amt:  tx.amt,
+      desc: tx.ref || 'Imported transaction',
+      cat: 'Other',
+      date: tx.date,
+      ref:  tx.ref,
+      imported: true
+    });
+    importDone++;
+    importIdx++;
+  }
+  persist(); updateBalance();
+  finalizeLabelQueue();
+}
+
+function finalizeLabelQueue(){
+  document.getElementById('importDoneSub').textContent =
+    `${importDone} transaction${importDone!==1?'s':''} added to your ledger.`;
+  showImportScreen('done');
+}
+
+function finishImport(){
+  gotoTab('home');
+}
+
+// ══════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════
+updateBalance();
+renderTxns();
+document.getElementById('fDate').value = today();
+
+// ── PWA: service worker registration (offline support) ──
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{ /* fails silently if hosted without HTTPS, e.g. local file testing */ });
+  });
+}
+</script>
+</body>
+</html>
