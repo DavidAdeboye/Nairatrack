@@ -466,7 +466,14 @@ html,body{height:100%;background:var(--ink);color:var(--t0);font-family:var(--fo
 .import-tag-pdf{background:var(--negdim);color:var(--neg);border:1px solid rgba(232,80,80,.2);}
 .import-tag-txt{background:var(--bluedim);color:var(--blue);border:1px solid rgba(107,163,232,.2);}
 
+.import-or{
+  text-align:center;font-size:11px;color:var(--t2);
+  font-family:var(--font-mono);text-transform:uppercase;letter-spacing:1px;
+  margin:16px 0 0;
+}
+
 #fileInput{display:none;}
+#shotInput{display:none;}
 
 .import-tips{padding:16px 20px 0;}
 .import-tip-title{
@@ -556,6 +563,10 @@ html,body{height:100%;background:var(--ink);color:var(--t0);font-family:var(--fo
 }
 .label-tx-type.credit{background:var(--posdim);color:var(--pos);}
 .label-tx-type.debit{background:var(--negdim);color:var(--neg);}
+.label-tx-flip-hint{
+  font-size:9px;color:var(--t2);font-family:var(--font-mono);
+  margin:-10px 0 16px;letter-spacing:.3px;
+}
 
 .label-divider{height:1px;background:var(--b1);margin-bottom:16px;}
 
@@ -763,6 +774,7 @@ html,body{height:100%;background:var(--ink);color:var(--t0);font-family:var(--fo
       <!-- Upload screen -->
       <div class="import-screen on" id="import-upload">
         <input type="file" id="fileInput" accept=".csv,.pdf,.txt" onchange="handleFileSelect(this.files[0])">
+        <input type="file" id="shotInput" accept="image/*" multiple onchange="handleShotSelect(this.files)">
 
         <div class="import-hero" id="dropzone"
           onclick="document.getElementById('fileInput').click()"
@@ -779,6 +791,17 @@ html,body{height:100%;background:var(--ink);color:var(--t0);font-family:var(--fo
           </div>
         </div>
 
+        <div class="import-or">or</div>
+
+        <div class="import-hero" id="shotzone" onclick="document.getElementById('shotInput').click()">
+          <span class="import-hero-ico">📸</span>
+          <div class="import-hero-title">Import from screenshots</div>
+          <div class="import-hero-sub">Pick screenshots newest → oldest (the order you scrolled). Up to 5 at a time.</div>
+          <div class="import-supported">
+            <span class="import-tag import-tag-csv">AI-read</span>
+          </div>
+        </div>
+
         <div class="import-tips">
           <div class="import-tip-title">Works with</div>
           <div class="import-tip">
@@ -787,7 +810,7 @@ html,body{height:100%;background:var(--ink);color:var(--t0);font-family:var(--fo
           </div>
           <div class="import-tip">
             <div class="import-tip-ico">📱</div>
-            <div class="import-tip-text"><strong>OPay, Palmpay, Moniepoint, Kuda</strong> — export transaction history from app settings or request via email.</div>
+            <div class="import-tip-text"><strong>OPay, Palmpay, Moniepoint, Kuda</strong> — export transaction history from app settings, or just screenshot the transaction list.</div>
           </div>
           <div class="import-tip">
             <div class="import-tip-ico">💡</div>
@@ -821,7 +844,8 @@ html,body{height:100%;background:var(--ink);color:var(--t0);font-family:var(--fo
           <div class="label-tx-ref" id="labelRef">—</div>
           <div class="label-tx-date" id="labelDate">—</div>
           <div class="label-tx-amount" id="labelAmt">₦0</div>
-          <div class="label-tx-type" id="labelType">debit</div>
+          <div class="label-tx-type" id="labelType" onclick="flipLabelDirection()" style="cursor:pointer;" title="Tap to flip if this was read wrong">debit</div>
+          <div class="label-tx-flip-hint">Wrong direction? Tap above to flip.</div>
           <div class="label-divider"></div>
 
           <div class="label-field">
@@ -942,8 +966,10 @@ html,body{height:100%;background:var(--ink);color:var(--t0);font-family:var(--fo
       Your data lives only on this device. Export a backup file before switching browsers, reinstalling, or moving to the installed app — then import it there.
     </div>
     <button class="save-btn" style="margin-bottom:10px;" onclick="exportBackup()">⇩ Export backup file</button>
-    <button class="save-btn" style="background:var(--ink3);color:var(--t0);" onclick="document.getElementById('backupFileInput').click()">⇧ Import backup file</button>
+    <button class="save-btn" style="background:var(--ink3);color:var(--t0);margin-bottom:10px;" onclick="document.getElementById('backupFileInput').click()">⇧ Import backup file</button>
     <input type="file" id="backupFileInput" accept="application/json" style="display:none" onchange="importBackup(event)">
+    <button class="save-btn" style="background:transparent;color:var(--neg);border:1px solid rgba(232,80,80,.3);margin-bottom:10px;" onclick="clearGroqKeySheet()">Clear saved Groq API key</button>
+    <button class="save-btn" style="background:rgba(232,80,80,.12);color:var(--neg);border:1px solid rgba(232,80,80,.4);" onclick="resetAllDataSheet()">⚠ Erase all NairaTrack data</button>
     <div id="backupStatus" style="font-size:11px;color:var(--t2);margin-top:12px;text-align:center;"></div>
   </div>
 </div>
@@ -959,13 +985,16 @@ let aiPeriod = 'today';
 let statsPeriod = 'month';
 
 // ── API KEY: never hardcoded ──
-// Stored in sessionStorage only (cleared when tab closes)
+// Stored in localStorage so it persists across app restarts (personal-use device).
+// Note: this means the key sits in plaintext in this browser/app's storage —
+// fine for a private device, but don't use this build on a shared/public phone,
+// and never commit this file with a key baked in.
 function getGroqKey(){
-  let k = sessionStorage.getItem('nt3_gk');
+  let k = localStorage.getItem('nt3_gk');
   if(!k){
-    k = prompt('Enter your Groq API key to use AI features.\n(Stored for this session only — never saved to disk.)');
+    k = prompt('Enter your Groq API key to use AI features.\n(Saved on this device so you won\u2019t need to re-enter it. Use "Clear saved key" in Backup & restore to remove it.)');
     if(k && k.trim().startsWith('gsk_')){
-      sessionStorage.setItem('nt3_gk', k.trim());
+      localStorage.setItem('nt3_gk', k.trim());
     } else {
       return null;
     }
@@ -973,10 +1002,36 @@ function getGroqKey(){
   return k;
 }
 function clearGroqKey(){
-  sessionStorage.removeItem('nt3_gk');
+  localStorage.removeItem('nt3_gk');
+}
+function clearGroqKeySheet(){
+  clearGroqKey();
+  const el = document.getElementById('backupStatus');
+  if(el){ el.style.color='var(--t2)'; el.textContent='Saved API key cleared. You\u2019ll be asked for it again next time you use AI features.'; }
 }
 
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+function resetAllDataSheet(){
+  const first = confirm(
+    `This will permanently erase ALL transactions, loans, and your saved API key from this device.\n\nThis cannot be undone unless you've exported a backup file.\n\nContinue?`
+  );
+  if(!first) return;
+  const second = confirm('Are you absolutely sure? Type-confirm: tap OK to erase everything now.');
+  if(!second) return;
+
+  localStorage.removeItem('nt3_tx');
+  localStorage.removeItem('nt3_ln');
+  localStorage.removeItem('nt3_gk');
+  txns  = [];
+  loans = [];
+  updateBalance();
+  renderTxns();
+  closeBackupSheet();
+  alert('All NairaTrack data has been erased from this device.');
+}
+
+// Note: llama-3.3-70b-versatile was deprecated by Groq (announced June 17, 2026).
+// Using their recommended replacement for general chat/reasoning tasks.
+const GROQ_MODEL = 'openai/gpt-oss-120b';
 
 const CATS = [
   {id:'Food & Drinks',  ico:'🍔', name:'Food'},
@@ -1138,7 +1193,14 @@ function renderTxns(){
     el.innerHTML=`<div class="empty"><div class="empty-ico">📒</div><div class="empty-title">Ledger is empty</div><div class="empty-sub">Add entries manually above<br>or import your bank statement.</div></div>`;
     return;
   }
-  el.innerHTML = txns.slice(0,50).map(t=>`
+  // Sort by date (newest first). Ties broken by id (creation order) so that
+  // multiple entries on the same date stay in the order they were added/imported.
+  const sortedTxns = txns.slice().sort((a,b)=>{
+    const dateDiff = new Date(b.date) - new Date(a.date);
+    if(dateDiff !== 0) return dateDiff;
+    return (b.id||0) - (a.id||0);
+  });
+  el.innerHTML = sortedTxns.slice(0,50).map(t=>`
     <div class="tx${t.imported?' tx-imported':''}">
       <div class="tx-ico" style="background:${ICO_BG[t.type]}">${EMOJI[t.cat]||'📌'}</div>
       <div class="tx-body">
@@ -1379,6 +1441,7 @@ async function askAI(){
 let importQueue = []; // parsed raw txns waiting to be labelled
 let importIdx   = 0;
 let importDone  = 0;
+let importSkippedDupes = 0;
 let labelCatSel = 'Other';
 
 function resetImportFlow(){
@@ -1386,6 +1449,7 @@ function resetImportFlow(){
   importQueue = [];
   importIdx   = 0;
   importDone  = 0;
+  importSkippedDupes = 0;
 }
 
 function showImportScreen(name){
@@ -1438,9 +1502,20 @@ async function processFile(file){
       rows = await parsePDFTransactions(file);
     }
     if(!rows.length) throw new Error('No transactions found. Try a CSV export from your bank app.');
-    importQueue = rows;
+
+    const {kept, skipped} = dedupeRows(rows);
+    if(!kept.length){
+      showImportScreen('upload');
+      alert(skipped===1
+        ? 'That transaction is already in your ledger — nothing new to import.'
+        : `All ${skipped} transactions are already in your ledger — nothing new to import.`);
+      return;
+    }
+
+    importQueue = kept;
     importIdx   = 0;
     importDone  = 0;
+    importSkippedDupes = skipped;
     buildLabelCats();
     showLabelCard();
     showImportScreen('labeling');
@@ -1594,6 +1669,232 @@ function parsePDFHeuristic(text){
   return txns;
 }
 
+// ── SCREENSHOT IMPORT (Groq vision) ──
+// ── DEDUPE ──
+// Treats a row as a duplicate of an existing transaction if it has the
+// same date, the same amount (to the kobo), the same direction, and a
+// similar-enough description. This lets the same screenshot be imported
+// twice (or overlapping screenshots) without creating doubled entries.
+function normaliseRefForDedupe(s){
+  return (s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+}
+function isDuplicateOfExisting(row){
+  const rowRef = normaliseRefForDedupe(row.ref);
+  return txns.some(t=>{
+    if(t.date !== row.date) return false;
+    if(Math.abs(t.amt - row.amt) > 0.01) return false;
+    const existingType = (t.type==='income') ? 'credit' : 'debit';
+    if(existingType !== row.kind) return false;
+    const existingRef = normaliseRefForDedupe(t.ref || t.desc);
+    if(!rowRef || !existingRef) return true; // no text to compare — date+amount+direction match is enough
+    return existingRef===rowRef || existingRef.includes(rowRef) || rowRef.includes(existingRef);
+  });
+}
+function dedupeRows(rows){
+  const seenInBatch = [];
+  const kept = [];
+  let skipped = 0;
+  for(const row of rows){
+    const dupInLedger = isDuplicateOfExisting(row);
+    const dupInBatch   = seenInBatch.some(r=>
+      r.date===row.date && Math.abs(r.amt-row.amt)<0.01 && r.kind===row.kind &&
+      normaliseRefForDedupe(r.ref)===normaliseRefForDedupe(row.ref)
+    );
+    if(dupInLedger || dupInBatch){ skipped++; continue; }
+    seenInBatch.push(row);
+    kept.push(row);
+  }
+  return {kept, skipped};
+}
+
+async function handleShotSelect(fileList){
+  const files = Array.from(fileList||[]).filter(f=>f.type.startsWith('image/'));
+  if(!files.length) return;
+
+  if(files.length > 5){
+    alert('You can import up to 5 screenshots at a time. Please select fewer and try again.');
+    return;
+  }
+  for(const f of files){
+    if(f.size > 4*1024*1024){
+      alert(`"${f.name}" is larger than 4MB — try a smaller screenshot (crop tighter to the list, or lower resolution).`);
+      return;
+    }
+  }
+
+  showImportScreen('parsing');
+  document.getElementById('parseStatus').textContent = 'Reading screenshot'+(files.length>1?'s':'')+'…';
+
+  try{
+    const allRows = [];
+    for(let i=0;i<files.length;i++){
+      document.getElementById('parseStatus').textContent = `Reading screenshot ${i+1} of ${files.length}…`;
+      const b64  = await fileToBase64(files[i]);
+      const rows = await extractTxnsFromImage(b64, files[i].type);
+      allRows.push(...rows);
+    }
+    if(!allRows.length) throw new Error('Could not find any transactions in the screenshot(s). Make sure the list of transactions is clearly visible.');
+
+    const {kept, skipped} = dedupeRows(allRows);
+    if(!kept.length){
+      showImportScreen('upload');
+      alert(skipped===1
+        ? 'That transaction is already in your ledger — nothing new to import.'
+        : `All ${skipped} transactions are already in your ledger — nothing new to import.`);
+      return;
+    }
+
+    // Screenshots list newest-first (top to bottom). Reverse so labeling
+    // goes oldest \u2192 newest; the dashboard itself always re-sorts newest-first
+    // regardless of the order things were labeled/saved in.
+    importQueue = kept.slice().reverse();
+    importIdx   = 0;
+    importDone  = 0;
+    importSkippedDupes = skipped;
+    buildLabelCats();
+    showLabelCard();
+    showImportScreen('labeling');
+  } catch(err){
+    showImportScreen('upload');
+    const msg = (err && err.message) ? err.message : 'Something went wrong reading the screenshot. Please try again.';
+    alert('⚠ '+msg);
+  } finally {
+    document.getElementById('shotInput').value = '';
+  }
+}
+
+function fileToBase64(file){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload  = ()=>resolve(reader.result); // already a data: URL
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function extractTxnsFromImage(dataUrl, mimeType){
+  const key = getGroqKey();
+  if(!key) throw new Error('No API key provided. Reload and enter your Groq key.');
+
+  const sys = `You read screenshots of bank/fintech app transaction lists (Nigerian apps like GTBank, Access, OPay, Palmpay, Moniepoint, Kuda). Extract every visible transaction row as strict JSON only — no prose, no markdown fences.
+
+Return: {"txns":[{"date":"YYYY-MM-DD","desc":"short description","amount":1234.56,"direction":"in"|"out"}]}
+
+How to decide "direction" (check in this exact priority order — stop at the first one that applies):
+1. The sign/color of the amount itself is the strongest signal: a "+" prefix or green-colored amount is always "in"; a "-" prefix, strikethrough-style, or white/red amount is always "out". Read the amount's own sign before looking at anything else.
+2. If the amount has no visible sign or color cue, use the row's icon: a down-arrow (↓) icon means "in", an up-arrow (↑) icon means "out".
+3. Only if neither sign nor icon is visible, fall back to the description text: "Transfer from", "received", "interest", "refund", "cashback", "bonus" suggest "in"; "Transfer to", "airtime", "bills", "withdrawal", "purchase" suggest "out".
+Do not let the description text override a clear sign or icon — e.g. a row labeled just "Airtime" with a "-" sign and up-arrow is "out" even though the word doesn't say so explicitly; a row labeled "Bonus from Airtime Purchase" with a "+" sign is "in". When a label like "Airtime" or "Bills" appears with NO sign/color/arrow visible at all, treat it as "out" by default since these are almost always debits.
+
+Other rules:
+- These apps list transactions newest-first: the row nearest the TOP of the image is the most recent, and rows further DOWN are older. Use this ordering to help infer dates and relative recency when exact dates/years are ambiguous or missing.
+- Return rows in the same top-to-bottom order they appear in the image (newest first).
+- If the year isn't shown, infer from any visible month/context; if truly unknown, omit the year-specific guess and use today's date placeholder "0000-00-00" for that field so the app can fix it.
+- "amount" must be a plain positive number, no currency symbols or commas.
+- Truncated names are fine as-is, don't guess the full name.
+- Skip rows that are clearly just section headers or balance summaries, not actual transactions.
+- If you cannot find any transaction rows at all, return {"txns":[]}.`;
+
+  function buildBody(model){
+    return {
+      model,
+      temperature: 0,
+      max_completion_tokens: 4096,
+      response_format: {type:'json_object'},
+      messages: [
+        {role:'system', content: sys},
+        {role:'user', content: [
+          {type:'text', text:'Extract all transactions from this screenshot as JSON.'},
+          {type:'image_url', image_url:{url: dataUrl}}
+        ]}
+      ]
+    };
+  }
+
+  // Primary vision model, with one automatic fallback if Groq has fully
+  // decommissioned it (these models were deprecated June 2026 and may be
+  // pulled without much further notice).
+  const candidates = ['meta-llama/llama-4-scout-17b-16e-instruct', 'openai/gpt-oss-120b'];
+  let d, lastErr;
+
+  for(const model of candidates){
+    let r;
+    try{
+      r = await fetch('https://api.groq.com/openai/v1/chat/completions',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+        body: JSON.stringify(buildBody(model))
+      });
+    } catch(networkErr){
+      throw new Error('Could not reach the AI service. Check your connection and try again.');
+    }
+
+    let text;
+    try{
+      text = await r.text();
+      d = JSON.parse(text);
+    } catch(parseErr){
+      lastErr = `Unexpected response from server (status ${r.status}).`;
+      continue; // try next candidate rather than failing outright
+    }
+
+    if(d && d.error){
+      if(d.error.code==='invalid_api_key' || r.status===401){
+        clearGroqKey();
+        throw new Error('Your Groq API key was rejected. Reload and enter a fresh key.');
+      }
+      const decommissioned = r.status===404 || /decommissioned|deprecated|does not exist/i.test(d.error.message||'');
+      lastErr = d.error.message || `Request failed (status ${r.status}).`;
+      if(!decommissioned) break; // a real error, not a model-availability issue — stop retrying
+      continue; // otherwise try the next candidate model
+    }
+
+    const content = d?.choices?.[0]?.message?.content;
+    if(!content){
+      lastErr = 'The AI returned an empty response.';
+      continue;
+    }
+
+    lastErr = null;
+    break;
+  }
+
+  if(lastErr){
+    throw new Error('The AI vision model is temporarily unavailable on Groq\u2019s side ('+lastErr+'). Try again later, or use CSV/PDF import instead.');
+  }
+
+  const rawContent = d.choices[0].message.content;
+  let parsed;
+  try{
+    parsed = JSON.parse(rawContent);
+  } catch(e){
+    throw new Error('Could not understand the AI response. Try a clearer screenshot.');
+  }
+
+  // These categories are almost never credits in Nigerian banking/fintech apps.
+  // The AI sometimes misreads bare category labels like "Airtime" as income —
+  // this is a hard, code-level safety net rather than relying on the prompt alone.
+  const ALWAYS_DEBIT = /^(airtime|data|electricity|light bill|phcn|disco bill|cable\s*(tv)?|dstv|gotv|startimes|water bill|recharge|subscription|withdrawal|pos withdrawal|atm withdrawal|transfer to|payment to)\b/i;
+  const REFUND_EXCEPTION = /refund|reversal|reversed|cashback|bonus|credited back|chargeback/i;
+
+  const list = Array.isArray(parsed?.txns) ? parsed.txns : [];
+  const rows = [];
+  for(const t of list){
+    if(!t || typeof t!=='object') continue;
+    const amt = parseAmt(t.amount);
+    if(amt<=0) continue;
+    let kind = (t.direction==='in') ? 'credit' : 'debit';
+    const ref  = (t.desc==null ? '' : String(t.desc)).trim().substring(0,200) || 'Imported transaction';
+    if(kind==='credit' && ALWAYS_DEBIT.test(ref.trim()) && !REFUND_EXCEPTION.test(ref)){
+      kind = 'debit'; // override a likely misread — bare "Airtime"/"Data"/etc. with no refund/bonus wording is a spend, not income
+    }
+    const rawDate = (t.date && t.date!=='0000-00-00') ? t.date : '';
+    const date = normaliseDate(rawDate) || today();
+    rows.push({rawDate: rawDate||date, date, ref, amt, kind});
+  }
+  return rows;
+}
+
 // ── LABEL QUEUE ──
 function buildLabelCats(){
   const wrap = document.getElementById('labelCats');
@@ -1652,6 +1953,15 @@ function showLabelCard(){
   else if(/mum|dad|mom|parent|sister|brother|family|wife|husband|child|school fees/i.test(ref)) guess='Family';
 
   selectLabelCat(guess);
+}
+
+function flipLabelDirection(){
+  const tx = importQueue[importIdx];
+  if(!tx) return;
+  tx.kind = (tx.kind==='credit') ? 'debit' : 'credit';
+  document.getElementById('labelAmt').className  = 'label-tx-amount '+(tx.kind==='credit'?'credit':'debit');
+  document.getElementById('labelType').textContent = tx.kind==='credit'?'Credit · Income':'Debit · Expense';
+  document.getElementById('labelType').className   = 'label-tx-type '+(tx.kind==='credit'?'credit':'debit');
 }
 
 function saveLabel(){
@@ -1716,8 +2026,11 @@ function skipAllLabels(){
 }
 
 function finalizeLabelQueue(){
-  document.getElementById('importDoneSub').textContent =
-    `${importDone} transaction${importDone!==1?'s':''} added to your ledger.`;
+  let msg = `${importDone} transaction${importDone!==1?'s':''} added to your ledger.`;
+  if(importSkippedDupes > 0){
+    msg += ` (${importSkippedDupes} duplicate${importSkippedDupes!==1?'s':''} skipped.)`;
+  }
+  document.getElementById('importDoneSub').textContent = msg;
   showImportScreen('done');
 }
 
